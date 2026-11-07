@@ -67,14 +67,17 @@ Import dans Power BI Desktop
    sélectionner theme.json.
 3. Dans chaque table, coller les mesures de mesures_dax.txt (clic droit
    sur la table > Nouvelle mesure).
-4. Visuels suggérés :
-   - Cartes (KPI) : IoU Eau, IoU Bâti, Nombre de scènes, Vignettes train
+4. Visuels suggérés (reprend le gabarit du projet) :
+   - Cartes (KPI) : IoU Bâti, IoU Eau, F1-Score global (moyenne de
+     metriques[f1]), Nombre de scènes, Vignettes train
+   - Graphique à barres groupées : exposition_communes (axe = commune,
+     valeur = surface_bati_expose_ha, filtre = distance_risque_m)
+   - Histogramme groupé : metriques (axe = classe, valeur = iou)
    - Graphique en courbes : historique_entrainement (axe = epoch,
-     valeurs = perte_train et perte_val)
-   - Graphique à barres : metriques (axe = classe, valeur = iou)
+     valeurs = iou_fond, iou_bati, iou_eau)
    - Table : scenes (date, bati_pct, eau_inondation_pct, vignettes_*)
-   - Cartes : exposition (surface_bati_totale_ha, surface_bati_expose_ha,
-     part_bati_expose_pct)
+   - Filtres (toutes les pages) : scenes[date] / exposition_communes[commune]
+     et exposition_communes[distance_risque_m]
 
 Limite à rappeler sur le rapport
 ----------------------------------
@@ -97,6 +100,14 @@ DAX = """// Mesures de départ — à coller dans Power BI après l'import des C
 IoU Eau = CALCULATE(SUM(metriques[iou]); metriques[classe] = "eau_inondation")
 IoU Bati = CALCULATE(SUM(metriques[iou]); metriques[classe] = "bati")
 IoU Fond = CALCULATE(SUM(metriques[iou]); metriques[classe] = "fond")
+F1 Score Global = AVERAGE(metriques[f1])
+
+// Table exposition_communes : colonnes commune, distance_risque_m,
+// surface_bati_ha, surface_eau_ha, surface_bati_expose_ha,
+// part_bati_expose_pct — filtrer par distance_risque_m (50, 100 ou 200)
+// pour le graphique "bâti exposé par commune" (axe = commune)
+
+Surface bati expose par commune (km2) = SUM(exposition_communes[surface_bati_expose_ha]) / 100
 
 // Table scenes : colonnes date, pixels_invalides_aoi_pct, bati_pct,
 // eau_inondation_pct, vignettes_train, vignettes_val, vignettes_test
@@ -124,7 +135,13 @@ def main():
     donnees_dir = kit_dir / "donnees"
     donnees_dir.mkdir(parents=True, exist_ok=True)
 
-    for nom in ["scenes.csv", "metriques.csv", "historique_entrainement.csv", "exposition.csv"]:
+    for nom in [
+        "scenes.csv",
+        "metriques.csv",
+        "historique_entrainement.csv",
+        "exposition.csv",
+        "exposition_communes.csv",
+    ]:
         src = REPORTS_DIR / nom
         if src.exists():
             shutil.copy(src, donnees_dir / nom)

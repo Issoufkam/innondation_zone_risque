@@ -8,44 +8,62 @@ sémantique (U-Net).
 
 Zone d'étude par défaut : agglomération d'Abidjan (Côte d'Ivoire).
 
-## Sources de données (réelles, publiques, sans compte)
+## Sources de données (réelles, publiques)
 
-- **Imagerie Sentinel-2 L2A** : catalogue STAC public de
-  [Digital Earth Africa](https://explorer.digitalearth.africa/stac)
-  (collection `s2_l2a_c1`), fichiers hébergés sur un bucket S3 public
-  (`deafrica-sentinel-2-l2a-c1`, région `af-south-1`), accessibles en HTTPS
-  anonyme — aucune inscription Copernicus nécessaire.
-- **Empreintes de bâtiments** : [Google Open Buildings v3](https://sites.research.google/gr/open-buildings/)
-  (polygones), bucket public `open-buildings-data`, téléchargement par
-  tuiles S2 (niveau 4) calculées avec `s2sphere`.
-- **Limites administratives** : [Humanitarian Data Exchange — Côte d'Ivoire](https://data.humdata.org/group/civ)
-  (COD-AB, limites des communes/régions).
+- **Imagerie Sentinel-2 L2A** — deux sources interchangeables (même
+  pipeline derrière) :
+  - [Digital Earth Africa](https://explorer.digitalearth.africa/stac)
+    (collection `s2_l2a_c1`) : fichiers hébergés sur un bucket S3 public
+    (`deafrica-sentinel-2-l2a-c1`, région `af-south-1`), accessibles en
+    HTTPS anonyme — **aucun compte nécessaire**, source par défaut
+    (`src/download_sentinel2.py`).
+  - [Copernicus Data Space Ecosystem](https://dataspace.copernicus.eu)
+    (la source officielle citée dans le projet d'origine) : nécessite un
+    compte et des clés S3 (`src/download_sentinel2_cdse.py`, voir
+    `.env.example`).
+- **Empreintes de bâtiments** : OpenStreetMap (relevé communautaire,
+  licence ODbL), interrogé via l'API Overpass (`src/download_buildings.py`).
+  Préféré à Google Open Buildings pour cette zone : la tuile S2 Open
+  Buildings qui couvre Abidjan pèse 1,5 Go (pas de découpage plus fin sans
+  compte Google Earth Engine), contre quelques Mo via OSM.
+- **Communes d'Abidjan** : OpenStreetMap (relations `admin_level=8`,
+  `src/download_communes.py`) — les limites OCHA (COD-AB) ne descendent
+  que jusqu'au département "Abidjan" (une seule zone, pas les 10 communes).
+- **Limites administratives (pays/régions)** : [Humanitarian Data Exchange — Côte d'Ivoire](https://data.humdata.org/group/civ)
+  (COD-AB, `src/download_boundaries.py`).
 
 Aucune valeur chiffrée du projet n'est inventée par une IA : tout vient de
 ces fichiers téléchargés et des calculs du code.
 
 ## Méthode
 
-1. `src/download_sentinel2.py` — recherche et télécharge les bandes
-   Sentinel-2 (green, nir, swir16, swir22, scl) sur la zone et la période
-   choisies.
-2. `src/download_buildings.py` — télécharge les polygones Open Buildings
-   qui intersectent la zone.
-3. `src/download_boundaries.py` — télécharge les limites des communes
-   (HDX).
-4. `src/indices.py` — calcule le MNDWI (eau) et le NDBI (bâti) comme
+1. `src/download_sentinel2.py` (ou `download_sentinel2_cdse.py`) —
+   recherche et télécharge les bandes Sentinel-2 (green, nir, swir16,
+   swir22, scl) sur la zone et la période choisies ; seule la fenêtre qui
+   recouvre l'AOI est lue, jamais la scène entière.
+2. `src/download_buildings.py` — télécharge les empreintes de bâtiments
+   OpenStreetMap qui intersectent la zone.
+3. `src/download_communes.py` — télécharge les 10 communes d'Abidjan
+   (OpenStreetMap).
+4. `src/download_boundaries.py` — télécharge les limites administratives
+   du pays/des régions (HDX).
+5. `src/indices.py` — calcule le MNDWI (eau) et le NDBI (bâti) comme
    heuristiques de référence (baselines).
-5. `src/labels.py` — construit les masques d'entraînement : classe
-   « bâti » à partir des polygones Open Buildings (donnée vérifiée),
+6. `src/labels.py` — construit les masques d'entraînement : classe
+   « bâti » à partir des empreintes OpenStreetMap (donnée vérifiée),
    classe « eau / zone inondée » à partir d'un seuillage MNDWI (heuristique
    — **limite méthodologique à mentionner** : ce n'est pas une carte
    d'inondation validée sur le terrain).
-6. `src/tiling.py` — découpe la scène en vignettes (256×256) et sépare
+7. `src/tiling.py` — découpe la scène en vignettes (256×256) et sépare
    spatialement train/val/test (pas de chevauchement).
-7. `src/unet.py` + `src/train.py` — entraîne un U-Net léger (CPU) pour la
-   segmentation 3 classes (fond, bâti, eau).
-8. `src/evaluate.py` — calcule IoU et F1-score par classe, exporte les
-   masques prédits en GeoTIFF.
+8. `src/unet.py` + `src/train.py` — entraîne un U-Net léger (CPU) pour la
+   segmentation 3 classes (fond, bâti, eau) ; suit la perte et l'IoU de
+   validation à chaque époque.
+9. `src/evaluate.py` — calcule IoU et F1-score par classe sur le jeu de
+   test, exporte les masques prédits en GeoTIFF.
+10. `src/carte_exposition.py` — applique le modèle à une scène complète et
+    calcule l'exposition du bâti (global et par commune, à 50/100/200 m
+    d'une zone d'eau détectée).
 
 ## Résultats (9 scènes Sentinel-2, 2021-2023, U-Net léger 25 époques)
 
@@ -102,19 +120,28 @@ py -3.12 -m venv .venv
 pip install -r requirements.txt
 ```
 
+Pour utiliser Copernicus Data Space au lieu de Digital Earth Africa :
+copier `.env.example` en `.env` et renseigner `CDSE_S3_ACCESS_KEY` /
+`CDSE_S3_SECRET_KEY` (clés générées sur
+https://eodata-s3keysmanager.dataspace.copernicus.eu/, jamais commitées).
+
 ## Utilisation
 
 ```bash
 python src/download_sentinel2.py --start 2023-06-01 --end 2023-10-31
+# ou, avec un compte Copernicus : python src/download_sentinel2_cdse.py --start 2023-06-01 --end 2023-10-31
 python src/download_buildings.py
+python src/download_communes.py
 python src/download_boundaries.py
 python src/indices.py
 python src/labels.py
 python src/tiling.py
-python src/train.py --epochs 15
+python src/train.py --epochs 25
 python src/evaluate.py
 python src/visualiser.py          # aperçu PNG image/étiquette/prédiction (vignettes de test)
-python src/carte_exposition.py    # inférence sur une scène complète + indicateurs d'exposition
+python src/carte_exposition.py    # inférence sur une scène complète + exposition (globale et par commune)
+python src/resume.py              # consolide les résultats en CSV (dashboard, Power BI)
+python src/kit_powerbi.py         # assemble le kit Power BI (ZIP)
 ```
 
 Chaque étape écrit ses résultats dans `data/` ou `outputs/` et peut être
