@@ -65,17 +65,19 @@ ces fichiers téléchargés et des calculs du code.
     calcule l'exposition du bâti (global et par commune, à 50/100/200 m
     d'une zone d'eau détectée).
 
-## Résultats (9 scènes Sentinel-2, 2021-2023, U-Net léger 25 époques)
+## Résultats (10 scènes Sentinel-2, 2021-2023, U-Net léger 25 époques)
 
-Données réelles : 9 scènes Sentinel-2 L2A sur Abidjan (2021-2023), 235
-vignettes d'entraînement / 53 validation / 56 test (256×256, séparation
-spatiale stricte). Évaluation sur le jeu de test (`outputs/reports/evaluation.json`) :
+Données réelles : 10 scènes Sentinel-2 L2A sur Abidjan (2021-2023 ; 9 via
+Digital Earth Africa + 1 mosaïque de 4 tuiles via Copernicus Data Space),
+259 vignettes d'entraînement / 57 validation / 68 test (256×256,
+séparation spatiale stricte). Évaluation sur le jeu de test
+(`outputs/reports/evaluation.json`) :
 
 | Classe              | IoU   | F1    |
 |---------------------|-------|-------|
-| Fond                | 0.85  | 0.92  |
-| Bâti                | 0.13  | 0.24  |
-| Eau / inondation    | 0.92  | 0.96  |
+| Fond                | 0.89  | 0.94  |
+| Bâti                | 0.10  | 0.19  |
+| Eau / inondation    | 0.90  | 0.95  |
 
 **La détection d'eau/zone inondée est solide (IoU 0,92).** La segmentation
 du bâti est en revanche faible et **ne doit pas être présentée comme
