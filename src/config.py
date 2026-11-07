@@ -1,8 +1,24 @@
 """Paramètres communs du projet : zone d'étude, chemins, constantes."""
 
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def _charger_env(path):
+    """Lecteur minimal de fichier .env (évite une dépendance à python-dotenv)."""
+    if not path.exists():
+        return
+    for ligne in path.read_text(encoding="utf-8").splitlines():
+        ligne = ligne.strip()
+        if not ligne or ligne.startswith("#") or "=" not in ligne:
+            continue
+        cle, _, valeur = ligne.partition("=")
+        os.environ.setdefault(cle.strip(), valeur.strip())
+
+
+_charger_env(ROOT / ".env")
 DATA = ROOT / "data"
 RAW = DATA / "raw"
 PROCESSED = DATA / "processed"

@@ -32,7 +32,7 @@ def poids_classes(dataset, max_echantillons=200):
     return torch.tensor(poids, dtype=torch.float32)
 
 
-def boucle(modele, loader, criterion, optimizer=None):
+def boucle(modele, loader, criterion, optimizer=None, matrice_confusion=None):
     entrainement = optimizer is not None
     modele.train(entrainement)
     total_perte, n = 0.0, 0
@@ -46,7 +46,25 @@ def boucle(modele, loader, criterion, optimizer=None):
             optimizer.step()
         total_perte += perte.item() * bands.size(0)
         n += bands.size(0)
+
+        if matrice_confusion is not None:
+            pred = sortie.argmax(dim=1).detach().numpy()
+            label_np = label.numpy()
+            valide = label_np != IGNORE_LABEL
+            for p, l in zip(pred[valide], label_np[valide]):
+                matrice_confusion[l, p] += 1
+
     return total_perte / max(n, 1)
+
+
+def iou_par_classe(matrice_confusion):
+    ious = []
+    for c in range(N_CLASSES):
+        tp = matrice_confusion[c, c]
+        fp = matrice_confusion[:, c].sum() - tp
+        fn = matrice_confusion[c, :].sum() - tp
+        ious.append(float(tp / max(tp + fp + fn, 1)))
+    return ious  # [fond, bati, eau]
 
 
 def main():
@@ -78,10 +96,24 @@ def main():
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
         perte_train = boucle(modele, train_loader, criterion, optimizer)
-        perte_val = boucle(modele, val_loader, criterion)
+        matrice = np.zeros((N_CLASSES, N_CLASSES), dtype="int64")
+        perte_val = boucle(modele, val_loader, criterion, matrice_confusion=matrice)
+        iou_fond, iou_bati, iou_eau = iou_par_classe(matrice)
         duree = time.time() - t0
-        print(f"époque {epoch}/{args.epochs} - perte train {perte_train:.4f} - perte val {perte_val:.4f} ({duree:.0f}s)")
-        historique.append({"epoch": epoch, "perte_train": perte_train, "perte_val": perte_val})
+        print(
+            f"époque {epoch}/{args.epochs} - perte train {perte_train:.4f} - perte val {perte_val:.4f} "
+            f"- IoU val [fond {iou_fond:.3f}, bâti {iou_bati:.3f}, eau {iou_eau:.3f}] ({duree:.0f}s)"
+        )
+        historique.append(
+            {
+                "epoch": epoch,
+                "perte_train": perte_train,
+                "perte_val": perte_val,
+                "iou_fond": iou_fond,
+                "iou_bati": iou_bati,
+                "iou_eau": iou_eau,
+            }
+        )
 
         if perte_val < meilleure_perte:
             meilleure_perte = perte_val

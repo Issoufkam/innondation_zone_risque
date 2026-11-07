@@ -7,21 +7,28 @@ pixels prédits.
 """
 
 import argparse
+import csv
 import json
 
 import numpy as np
 import rasterio
 import torch
+from rasterio.features import rasterize
+from rasterio.warp import transform_geom
 from scipy.ndimage import binary_dilation
 
-from config import CHECKPOINTS_DIR, CLASS_BUILDING, CLASS_WATER, PROCESSED, RAW, REPORTS_DIR, TILE_SIZE
+from config import BOUNDARIES_DIR, CHECKPOINTS_DIR, CLASS_BUILDING, CLASS_WATER, PROCESSED, RAW, REPORTS_DIR, TILE_SIZE
 from tiling import DERIVED_BANDS, FEATURE_BANDS
 from unet import UNetLeger
 
 IGNORE_LABEL = 255
-DISTANCE_RISQUE_M = 50  # bâti considéré exposé si à moins de 50 m d'une zone d'eau détectée
+DISTANCE_RISQUE_M = 50  # bâti considéré exposé si à moins de 50 m d'une zone d'eau détectée (carte principale)
+DISTANCES_COMPARAISON_M = [50, 100, 200]  # pour le filtre "Indice de risque" du dashboard
 RESOLUTION_M = 10
-RAYON_PIXELS = max(1, round(DISTANCE_RISQUE_M / RESOLUTION_M))
+
+
+def rayon_pixels(distance_m):
+    return max(1, round(distance_m / RESOLUTION_M))
 
 
 def charger_pile(scene_id):
@@ -36,6 +43,24 @@ def charger_pile(scene_id):
     with rasterio.open(PROCESSED / scene_id / "masque_nuages.tif") as src:
         cloud_mask = src.read(1).astype(bool)
     return np.stack(arrays, axis=0), cloud_mask, profile
+
+
+def rasteriser_communes(profile):
+    """Rasterise les 10 communes d'Abidjan sur la grille de la scène.
+    Retourne (tableau d'index 1..10, {index: nom_commune})."""
+    path = BOUNDARIES_DIR / "communes_abidjan.geojson"
+    if not path.exists():
+        return None, {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    formes, noms = [], {}
+    for i, feat in enumerate(data["features"], start=1):
+        geom = transform_geom("EPSG:4326", profile["crs"], feat["geometry"])
+        formes.append((geom, i))
+        noms[i] = feat["properties"]["commune"]
+    index_communes = rasterize(
+        formes, out_shape=(profile["height"], profile["width"]), transform=profile["transform"], fill=0, dtype="uint8"
+    )
+    return index_communes, noms
 
 
 def inference_pleine_scene(modele, stack):
@@ -79,7 +104,7 @@ def main():
 
     bati = pred == CLASS_BUILDING
     eau = pred == CLASS_WATER
-    zone_risque = binary_dilation(eau, iterations=RAYON_PIXELS)
+    zone_risque = binary_dilation(eau, iterations=rayon_pixels(DISTANCE_RISQUE_M))
     bati_expose = bati & zone_risque
 
     pixel_ha = (RESOLUTION_M * RESOLUTION_M) / 10_000
@@ -104,6 +129,38 @@ def main():
     with rasterio.open(out_path, "w", **out_profile) as dst:
         dst.write(carte, 1)
     print(f"Carte d'exposition écrite dans {out_path}")
+
+    # Exposition par commune et par distance (pour les filtres du dashboard).
+    index_communes, noms_communes = rasteriser_communes(profile)
+    lignes = []
+    if index_communes is not None:
+        for distance in DISTANCES_COMPARAISON_M:
+            zone_d = binary_dilation(eau, iterations=rayon_pixels(distance))
+            expose_d = bati & zone_d
+            for idx, nom in noms_communes.items():
+                dans_commune = index_communes == idx
+                bati_c = bati & dans_commune
+                eau_c = eau & dans_commune
+                expose_c = expose_d & dans_commune
+                n_bati = int(bati_c.sum())
+                lignes.append(
+                    {
+                        "commune": nom,
+                        "distance_risque_m": distance,
+                        "surface_bati_ha": round(n_bati * pixel_ha, 2),
+                        "surface_eau_ha": round(int(eau_c.sum()) * pixel_ha, 2),
+                        "surface_bati_expose_ha": round(int(expose_c.sum()) * pixel_ha, 2),
+                        "part_bati_expose_pct": round(100 * int(expose_c.sum()) / max(n_bati, 1), 2),
+                    }
+                )
+        csv_path = REPORTS_DIR / "exposition_communes.csv"
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(lignes[0].keys()))
+            writer.writeheader()
+            writer.writerows(lignes)
+        print(f"Exposition par commune écrite dans {csv_path} ({len(lignes)} lignes)")
+    else:
+        print("communes_abidjan.geojson absent : lancez d'abord download_communes.py")
 
 
 if __name__ == "__main__":
