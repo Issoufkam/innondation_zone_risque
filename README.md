@@ -79,6 +79,12 @@ L'indicateur d'exposition (bâti à moins de 50 m d'une zone d'eau détectée,
 publier uniquement avec la réserve ci-dessus, ou après une amélioration de
 la classe bâti.
 
+## Tableau de bord
+
+- **Dashboard web** : [Segmentation Sentinel-2 — Abidjan](https://claude.ai/artifact/JYm4CUvAFTmDEdMiN3Czdj) (lien privé, à partager depuis le menu « Partager » de la page).
+- **Kit Power BI** : `python src/kit_powerbi.py` écrit `outputs/kit_powerbi_segmentation_sentinel2.zip` (données CSV, thème, mesures DAX de départ — instructions dans son `LISEZMOI.txt`).
+- `python src/resume.py` régénère les CSV consolidés (`outputs/reports/scenes.csv`, `metriques.csv`, `historique_entrainement.csv`, `exposition.csv`) utilisés par les deux.
+
 ## Limite de calcul
 
 Pas de GPU Nvidia sur cette machine (carte graphique Intel Iris Xe) :
